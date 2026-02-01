@@ -117,8 +117,27 @@ ts-magic down --all
 
 Both modes give you HTTPS with valid certificates automatically.
 
+## ghp Integration
+
+If you use [ghp](https://github.com/bretwardjames/ghp) for GitHub Projects workflow, ts-magic can automatically set up funnels when you create worktrees:
+
+```bash
+# Install ghp hooks
+ts-magic install-hooks
+
+# Now when you run:
+ghp start 123 --parallel
+# ts-magic will automatically set up funnels for the new worktree
+```
+
+To remove the hooks:
+```bash
+ts-magic install-hooks --remove
+```
+
 ## Requirements
 
 - Python 3.10+
 - Tailscale installed and running
 - Tailscale Funnel enabled on your tailnet (for public access)
+- [ghp](https://github.com/bretwardjames/ghp) (optional, for automatic worktree integration)

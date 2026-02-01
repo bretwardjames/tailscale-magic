@@ -258,10 +258,143 @@ def fix_conflicts(
         update_port_in_env(env_path, app.suggested_port)
 
 
+def check_ghp_installed() -> bool:
+    """Check if ghp CLI is installed."""
+    try:
+        result = subprocess.run(
+            ["ghp", "--version"],
+            capture_output=True,
+            text=True,
+        )
+        return result.returncode == 0
+    except FileNotFoundError:
+        return False
+
+
+def get_ghp_hooks() -> list[str]:
+    """Get list of installed ghp hook names."""
+    try:
+        result = subprocess.run(
+            ["ghp", "hooks", "list"],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            return []
+        # Parse hook names from output (lines starting with ● or ○)
+        hooks = []
+        for line in result.stdout.splitlines():
+            line = line.strip()
+            if line.startswith("●") or line.startswith("○"):
+                # Extract hook name after the bullet
+                name = line.split()[1] if len(line.split()) > 1 else ""
+                if name:
+                    hooks.append(name)
+        return hooks
+    except FileNotFoundError:
+        return []
+
+
+def install_ghp_hook(name: str, event: str, command: str) -> bool:
+    """Install a ghp event hook."""
+    try:
+        result = subprocess.run(
+            ["ghp", "hooks", "add", name, "--event", event, "--command", command],
+            capture_output=True,
+            text=True,
+        )
+        return result.returncode == 0
+    except FileNotFoundError:
+        return False
+
+
+@app.command("install-hooks")
+def install_hooks(
+    yes: bool = typer.Option(False, "--yes", "-y", help="Install without confirmation"),
+    remove: bool = typer.Option(False, "--remove", "-r", help="Remove hooks instead of installing"),
+):
+    """Install ghp hooks for automatic worktree integration."""
+    if not check_ghp_installed():
+        console.print("[yellow]ghp CLI not found.[/yellow]")
+        console.print("Install ghp to enable automatic worktree integration:")
+        console.print("  npm install -g @bretwardjames/ghp-cli")
+        return
+
+    hooks_to_install = [
+        ("ts-magic-up", "worktree-created", "ts-magic up ${worktree.path}"),
+        ("ts-magic-down", "worktree-removed", "ts-magic down --all"),
+    ]
+
+    existing_hooks = get_ghp_hooks()
+
+    if remove:
+        # Remove hooks
+        hooks_to_remove = [h[0] for h in hooks_to_install if h[0] in existing_hooks]
+        if not hooks_to_remove:
+            console.print("[dim]No ts-magic hooks installed.[/dim]")
+            return
+
+        console.print("[bold]Hooks to remove:[/bold]")
+        for name in hooks_to_remove:
+            console.print(f"  • {name}")
+
+        if not yes:
+            confirm = typer.confirm("\nRemove these hooks?")
+            if not confirm:
+                console.print("[yellow]Cancelled.[/yellow]")
+                return
+
+        for name in hooks_to_remove:
+            result = subprocess.run(
+                ["ghp", "hooks", "remove", name],
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode == 0:
+                console.print(f"  [green]✓[/green] Removed {name}")
+            else:
+                console.print(f"  [red]✗[/red] Failed to remove {name}")
+        return
+
+    # Install hooks
+    hooks_needed = [(n, e, c) for n, e, c in hooks_to_install if n not in existing_hooks]
+
+    if not hooks_needed:
+        console.print("[green]✓ All ts-magic hooks already installed.[/green]")
+        console.print("\nInstalled hooks:")
+        for name, event, cmd in hooks_to_install:
+            console.print(f"  • {name} ({event})")
+        return
+
+    console.print("[bold]ghp hooks for automatic worktree integration:[/bold]\n")
+    for name, event, cmd in hooks_needed:
+        console.print(f"  [cyan]{name}[/cyan] on [yellow]{event}[/yellow]")
+        console.print(f"    {cmd}\n")
+
+    console.print("These hooks will automatically set up/tear down Tailscale")
+    console.print("funnels when you create or remove worktrees with ghp.\n")
+
+    if not yes:
+        confirm = typer.confirm("Install these hooks?")
+        if not confirm:
+            console.print("[yellow]Cancelled.[/yellow]")
+            return
+
+    console.print()
+    for name, event, cmd in hooks_needed:
+        if install_ghp_hook(name, event, cmd):
+            console.print(f"  [green]✓[/green] Installed {name}")
+        else:
+            console.print(f"  [red]✗[/red] Failed to install {name}")
+
+    console.print("\n[green]Done![/green] Funnels will be set up automatically when you run:")
+    console.print("  ghp start <issue> --parallel")
+
+
 @app.command()
 def version():
     """Show version information."""
-    console.print(f"ts-funnel {__version__}")
+    console.print(f"ts-magic {__version__}")
 
 
 if __name__ == "__main__":
