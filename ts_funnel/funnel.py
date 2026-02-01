@@ -58,14 +58,25 @@ def get_current_funnels() -> dict:
         return {}
 
 
-def setup_funnel(port: int, background: bool = True) -> bool:
-    """Set up a Tailscale funnel for a port."""
+def setup_funnel(port: int, https_port: int = None, background: bool = True) -> bool:
+    """Set up a Tailscale funnel for a port.
+
+    Args:
+        port: Local port to expose
+        https_port: External HTTPS port (defaults to same as local port)
+        background: Run in background
+    """
     if not validate_port(port):
         console.print(f"[red]Invalid port number:[/red] {port}")
         return False
 
+    https_port = https_port or port
+    if not validate_port(https_port):
+        console.print(f"[red]Invalid HTTPS port number:[/red] {https_port}")
+        return False
+
     try:
-        cmd = ["tailscale", "funnel"]
+        cmd = ["tailscale", "funnel", f"--https={https_port}"]
         if background:
             cmd.append("--bg")
         cmd.append(str(port))

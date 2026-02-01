@@ -134,8 +134,7 @@ def up(
 
     console.print(f"\n[bold green]Done![/bold green] Your apps are accessible at:")
     for p in ports:
-        # Tailscale funnels expose on port 443, local port is proxied internally
-        console.print(f"  https://{domain}/ (proxying local port {p})")
+        console.print(f"  https://{domain}:{p}/")
 
 
 @app.command()
