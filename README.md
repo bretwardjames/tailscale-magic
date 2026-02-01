@@ -1,4 +1,4 @@
-# ts-funnel
+# tailscale-magic
 
 Auto-discover and funnel local dev servers through Tailscale.
 
@@ -14,9 +14,12 @@ Auto-discover and funnel local dev servers through Tailscale.
 ## Installation
 
 ```bash
-cd ts-funnel
+git clone https://github.com/bretwardjames/tailscale-magic.git
+cd tailscale-magic
 pip install -e .
 ```
+
+Commands available as both `ts-magic` and `ts-funnel`.
 
 ## Usage
 
@@ -24,62 +27,62 @@ pip install -e .
 
 ```bash
 # Scan default directory (auto-detected: ~/IdeaProjects, ~/Projects, etc.)
-ts-funnel scan
+ts-magic scan
 
 # Scan a specific directory
-ts-funnel scan /path/to/projects
+ts-magic scan /path/to/projects
 
 # Adjust scan depth for monorepos
-ts-funnel scan --depth 3
+ts-magic scan --depth 3
 ```
 
 ### Set up funnels
 
 ```bash
 # Set up funnels (public internet) for all detected apps
-ts-funnel up
+ts-magic up
 
 # Set up serves (tailnet only - more secure)
-ts-funnel up --mode serve
+ts-magic up --mode serve
 
 # Dry run - show what would be done
-ts-funnel up --dry-run
+ts-magic up --dry-run
 
 # Specific port only
-ts-funnel up --port 3000
+ts-magic up --port 3000
 
 # Skip CORS updates
-ts-funnel up --no-cors
+ts-magic up --no-cors
 ```
 
 ### Fix port conflicts
 
-When multiple projects use the same default port, ts-funnel detects this and suggests alternatives:
+When multiple projects use the same default port, ts-magic detects this and suggests alternatives:
 
 ```bash
 # See conflicts in scan output
-ts-funnel scan
+ts-magic scan
 
 # Preview what would change
-ts-funnel fix-conflicts --dry-run
+ts-magic fix-conflicts --dry-run
 
 # Apply changes (with confirmation prompt)
-ts-funnel fix-conflicts
+ts-magic fix-conflicts
 
 # Apply without confirmation
-ts-funnel fix-conflicts -y
+ts-magic fix-conflicts -y
 ```
 
 ### Check status
 
 ```bash
-ts-funnel status
+ts-magic status
 ```
 
 ### Remove funnels
 
 ```bash
-ts-funnel down --all
+ts-magic down --all
 ```
 
 ## Supported Frameworks

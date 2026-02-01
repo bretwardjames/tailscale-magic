@@ -25,7 +25,7 @@ class Mode:
     SERVE = "serve"    # Tailnet only
 
 app = typer.Typer(
-    name="ts-funnel",
+    name="ts-magic",
     help="Auto-discover and funnel local dev servers through Tailscale",
     no_args_is_help=True,
 )

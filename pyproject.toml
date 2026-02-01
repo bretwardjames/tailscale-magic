@@ -1,5 +1,5 @@
 [project]
-name = "ts-funnel"
+name = "tailscale-magic"
 version = "0.1.0"
 description = "Auto-discover and funnel local dev servers through Tailscale"
 readme = "README.md"
@@ -13,6 +13,7 @@ dependencies = [
 
 [project.scripts]
 ts-funnel = "ts_funnel.cli:app"
+ts-magic = "ts_funnel.cli:app"
 
 [build-system]
 requires = ["hatchling"]
