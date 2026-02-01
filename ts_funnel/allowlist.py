@@ -8,6 +8,26 @@ from rich.console import Console
 console = Console()
 
 
+def is_safe_path(base_path: Path, target_path: Path) -> bool:
+    """Verify target path is within base path (no symlink escapes)."""
+    try:
+        resolved_target = target_path.resolve()
+        resolved_base = base_path.resolve()
+        return resolved_target.is_relative_to(resolved_base)
+    except (ValueError, OSError):
+        return False
+
+
+def format_new_origins(origins: str, new_domain: str, quote_char: str = '"') -> str:
+    """Format new origins string, handling empty lists correctly."""
+    if not origins.strip():
+        return f'\n    {quote_char}{new_domain}{quote_char},\n'
+    elif origins.strip().endswith(","):
+        return f'{origins}    {quote_char}{new_domain}{quote_char},\n'
+    else:
+        return f'{origins},\n    {quote_char}{new_domain}{quote_char},\n'
+
+
 def update_django_cors(config_path: Path, domain: str) -> bool:
     """Update Django CORS/CSRF settings to include the domain."""
     try:
@@ -25,11 +45,7 @@ def update_django_cors(config_path: Path, domain: str) -> bool:
                 match = re.search(pattern, content, re.DOTALL)
                 if match:
                     origins = match.group(2)
-                    # Add the new domain before the closing bracket
-                    if origins.strip().endswith(","):
-                        new_origins = f'{origins}    "{https_domain}",\n'
-                    else:
-                        new_origins = f'{origins},\n    "{https_domain}",\n'
+                    new_origins = format_new_origins(origins, https_domain)
                     content = content[:match.start(2)] + new_origins + content[match.end(2):]
                     modified = True
 
@@ -40,10 +56,7 @@ def update_django_cors(config_path: Path, domain: str) -> bool:
                 match = re.search(pattern, content, re.DOTALL)
                 if match:
                     origins = match.group(2)
-                    if origins.strip().endswith(","):
-                        new_origins = f'{origins}    "{https_domain}",\n'
-                    else:
-                        new_origins = f'{origins},\n    "{https_domain}",\n'
+                    new_origins = format_new_origins(origins, https_domain)
                     content = content[:match.start(2)] + new_origins + content[match.end(2):]
                     modified = True
 
@@ -80,11 +93,7 @@ def update_fastapi_cors(config_path: Path, domain: str) -> bool:
                 console.print(f"[dim]Using wildcard origins:[/dim] {config_path}")
                 return False
 
-            if origins.strip().endswith(","):
-                new_origins = f'{origins}    "{https_domain}",\n'
-            else:
-                new_origins = f'{origins},\n    "{https_domain}",\n'
-
+            new_origins = format_new_origins(origins, https_domain)
             content = content[:match.start(2)] + new_origins + content[match.end(2):]
             config_path.write_text(content)
             console.print(f"[green]Updated[/green] {config_path}")
@@ -112,11 +121,7 @@ def update_express_cors(config_path: Path, domain: str) -> bool:
         match = re.search(pattern, content, re.DOTALL)
         if match:
             origins = match.group(2)
-            if origins.strip().endswith(","):
-                new_origins = f"{origins}    '{https_domain}',\n"
-            else:
-                new_origins = f"{origins},\n    '{https_domain}',\n"
-
+            new_origins = format_new_origins(origins, https_domain, quote_char="'")
             content = content[:match.start(2)] + new_origins + content[match.end(2):]
             config_path.write_text(content)
             console.print(f"[green]Updated[/green] {config_path}")
@@ -166,8 +171,13 @@ def update_env_file(env_path: Path, domain: str, var_name: str = "ALLOWED_HOSTS"
         return False
 
 
-def update_cors_config(config_path: Path, framework: str, domain: str) -> bool:
+def update_cors_config(config_path: Path, framework: str, domain: str, project_path: Optional[Path] = None) -> bool:
     """Update CORS config based on framework type."""
+    # Safety check: ensure config_path is within project_path if provided
+    if project_path and not is_safe_path(project_path, config_path):
+        console.print(f"[red]Skipping unsafe path:[/red] {config_path}")
+        return False
+
     if framework == "django":
         return update_django_cors(config_path, domain)
     elif framework == "fastapi":

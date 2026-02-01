@@ -7,11 +7,28 @@ from pathlib import Path
 from typing import Optional
 
 try:
-    import tomli
+    import tomllib as tomli  # Python 3.11+ stdlib
 except ImportError:
-    import tomllib as tomli
+    import tomli  # Fallback for Python 3.10
 
 from dotenv import dotenv_values
+
+MAX_FILE_SIZE = 1_000_000  # 1MB limit for file reads
+
+
+def validate_port(port: int) -> bool:
+    """Validate port is in valid range."""
+    return isinstance(port, int) and 1 <= port <= 65535
+
+
+def safe_read_text(path: Path, max_size: int = MAX_FILE_SIZE) -> Optional[str]:
+    """Safely read a text file with size limit and error handling."""
+    try:
+        if path.stat().st_size > max_size:
+            return None
+        return path.read_text(encoding='utf-8', errors='ignore')
+    except (OSError, UnicodeDecodeError):
+        return None
 
 
 @dataclass
@@ -168,8 +185,8 @@ def find_cors_config(project_path: Path, framework: str) -> Optional[Path]:
         for pattern in ["**/settings.py", "**/settings/dev.py", "**/settings/local.py", "**/settings/base.py"]:
             matches = list(project_path.glob(pattern))
             for match in matches:
-                content = match.read_text()
-                if "CORS" in content or "CSRF_TRUSTED" in content:
+                content = safe_read_text(match)
+                if content and ("CORS" in content or "CSRF_TRUSTED" in content):
                     return match
 
     elif framework == "fastapi":
@@ -177,8 +194,8 @@ def find_cors_config(project_path: Path, framework: str) -> Optional[Path]:
         for pattern in ["main.py", "app.py", "app/main.py", "src/main.py"]:
             path = project_path / pattern
             if path.exists():
-                content = path.read_text()
-                if "CORSMiddleware" in content or "cors" in content.lower():
+                content = safe_read_text(path)
+                if content and ("CORSMiddleware" in content or "cors" in content.lower()):
                     return path
 
     elif framework in ("express", "nestjs"):
@@ -186,8 +203,8 @@ def find_cors_config(project_path: Path, framework: str) -> Optional[Path]:
         for pattern in ["**/cors*.ts", "**/cors*.js", "**/app.ts", "**/main.ts", "**/index.ts"]:
             matches = list(project_path.glob(pattern))
             for match in matches:
-                content = match.read_text()
-                if "cors" in content.lower():
+                content = safe_read_text(match)
+                if content and "cors" in content.lower():
                     return match
 
     return None
@@ -208,35 +225,39 @@ def scan_directory(root_path: Path, max_depth: int = 2) -> list[WebApp]:
 
         # Check for frontend
         frontend = detect_frontend_framework(project_path)
+        frontend_port = None
         if frontend:
             framework, port = frontend
-            cors_path = find_cors_config(project_path, framework)
-            env_file = project_path / ".env" if (project_path / ".env").exists() else None
-            apps.append(WebApp(
-                name=project_path.name,
-                path=project_path,
-                framework=framework,
-                port=port,
-                app_type="frontend",
-                cors_config_path=cors_path,
-                env_file=env_file,
-            ))
+            if validate_port(port):
+                frontend_port = port
+                cors_path = find_cors_config(project_path, framework)
+                env_file = project_path / ".env" if (project_path / ".env").exists() else None
+                apps.append(WebApp(
+                    name=project_path.name,
+                    path=project_path,
+                    framework=framework,
+                    port=port,
+                    app_type="frontend",
+                    cors_config_path=cors_path,
+                    env_file=env_file,
+                ))
 
-        # Check for backend
+        # Check for backend (skip if same port as frontend to avoid duplicates)
         backend = detect_backend_framework(project_path)
         if backend:
             framework, port = backend
-            cors_path = find_cors_config(project_path, framework)
-            env_file = project_path / ".env" if (project_path / ".env").exists() else None
-            apps.append(WebApp(
-                name=project_path.name,
-                path=project_path,
-                framework=framework,
-                port=port,
-                app_type="backend",
-                cors_config_path=cors_path,
-                env_file=env_file,
-            ))
+            if validate_port(port) and port != frontend_port:
+                cors_path = find_cors_config(project_path, framework)
+                env_file = project_path / ".env" if (project_path / ".env").exists() else None
+                apps.append(WebApp(
+                    name=project_path.name,
+                    path=project_path,
+                    framework=framework,
+                    port=port,
+                    app_type="backend",
+                    cors_config_path=cors_path,
+                    env_file=env_file,
+                ))
 
         # Recurse into subdirectories (for monorepos)
         if project_path.is_dir():

@@ -130,11 +130,12 @@ def up(
                 if dry_run:
                     console.print(f"  [dim]Would update {app.cors_config_path}[/dim]")
                 else:
-                    update_cors_config(app.cors_config_path, app.framework, domain)
+                    update_cors_config(app.cors_config_path, app.framework, domain, app.path)
 
     console.print(f"\n[bold green]Done![/bold green] Your apps are accessible at:")
     for p in ports:
-        console.print(f"  https://{domain}:{p}/")
+        # Tailscale funnels expose on port 443, local port is proxied internally
+        console.print(f"  https://{domain}/ (proxying local port {p})")
 
 
 @app.command()
@@ -162,16 +163,20 @@ def status():
     console.print(f"[bold]Tailscale domain:[/bold] {domain or 'unknown'}")
 
     # Show funnel status
-    result = subprocess.run(
-        ["tailscale", "funnel", "status"],
-        capture_output=True,
-        text=True,
-    )
-    if result.stdout.strip():
-        console.print("\n[bold]Current funnels:[/bold]")
-        console.print(result.stdout)
-    else:
-        console.print("\n[dim]No funnels currently configured.[/dim]")
+    try:
+        result = subprocess.run(
+            ["tailscale", "funnel", "status"],
+            capture_output=True,
+            text=True,
+        )
+        if result.stdout.strip():
+            console.print("\n[bold]Current funnels:[/bold]")
+            console.print(result.stdout)
+        else:
+            console.print("\n[dim]No funnels currently configured.[/dim]")
+    except FileNotFoundError:
+        console.print("[red]Tailscale not found. Is it installed?[/red]")
+        raise typer.Exit(1)
 
 
 @app.command()

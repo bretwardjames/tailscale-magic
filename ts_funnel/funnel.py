@@ -9,6 +9,11 @@ from rich.console import Console
 console = Console()
 
 
+def validate_port(port: int) -> bool:
+    """Validate port is in valid range."""
+    return isinstance(port, int) and 1 <= port <= 65535
+
+
 @dataclass
 class FunnelConfig:
     """Configuration for a Tailscale funnel."""
@@ -55,6 +60,10 @@ def get_current_funnels() -> dict:
 
 def setup_funnel(port: int, background: bool = True) -> bool:
     """Set up a Tailscale funnel for a port."""
+    if not validate_port(port):
+        console.print(f"[red]Invalid port number:[/red] {port}")
+        return False
+
     try:
         cmd = ["tailscale", "funnel"]
         if background:
@@ -66,13 +75,16 @@ def setup_funnel(port: int, background: bool = True) -> bool:
             console.print(f"[red]Error setting up funnel for port {port}:[/red] {result.stderr}")
             return False
         return True
-    except subprocess.CalledProcessError as e:
-        console.print(f"[red]Failed to set up funnel:[/red] {e}")
+    except FileNotFoundError:
+        console.print("[red]Tailscale not found. Is it installed?[/red]")
         return False
 
 
 def remove_funnel(port: int) -> bool:
     """Remove a Tailscale funnel for a port."""
+    if not validate_port(port):
+        return False
+
     try:
         result = subprocess.run(
             ["tailscale", "funnel", "--remove", str(port)],
@@ -80,12 +92,16 @@ def remove_funnel(port: int) -> bool:
             text=True,
         )
         return result.returncode == 0
-    except subprocess.CalledProcessError:
+    except FileNotFoundError:
         return False
 
 
 def setup_serve(port: int, https_port: int = 443, path: str = "/") -> bool:
     """Set up Tailscale serve (local proxy) for a port."""
+    if not validate_port(port) or not validate_port(https_port):
+        console.print(f"[red]Invalid port number[/red]")
+        return False
+
     try:
         # tailscale serve https:<https_port> / http://127.0.0.1:<port>
         target = f"http://127.0.0.1:{port}"
@@ -96,8 +112,8 @@ def setup_serve(port: int, https_port: int = 443, path: str = "/") -> bool:
             console.print(f"[red]Error setting up serve for port {port}:[/red] {result.stderr}")
             return False
         return True
-    except subprocess.CalledProcessError as e:
-        console.print(f"[red]Failed to set up serve:[/red] {e}")
+    except FileNotFoundError:
+        console.print("[red]Tailscale not found. Is it installed?[/red]")
         return False
 
 
@@ -110,7 +126,7 @@ def reset_serve() -> bool:
             text=True,
         )
         return result.returncode == 0
-    except subprocess.CalledProcessError:
+    except FileNotFoundError:
         return False
 
 
