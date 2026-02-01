@@ -15,8 +15,14 @@ from .funnel import (
     get_tailscale_domain,
     reset_serve,
     setup_funnel,
+    setup_serve,
 )
 from .scanner import WebApp, scan_directory
+
+# Mode enum for funnel vs serve
+class Mode:
+    FUNNEL = "funnel"  # Public internet
+    SERVE = "serve"    # Tailnet only
 
 app = typer.Typer(
     name="ts-funnel",
@@ -79,11 +85,12 @@ def scan(
 @app.command()
 def up(
     path: Optional[Path] = typer.Argument(None, help="Directory to scan (default: auto-detect)"),
-    port: Optional[int] = typer.Option(None, "--port", "-p", help="Specific port to funnel"),
+    port: Optional[int] = typer.Option(None, "--port", "-p", help="Specific port to expose"),
+    mode: str = typer.Option(Mode.FUNNEL, "--mode", "-m", help="funnel (public) or serve (tailnet only)"),
     update_cors: bool = typer.Option(True, "--cors/--no-cors", help="Update CORS configs"),
     dry_run: bool = typer.Option(False, "--dry-run", "-n", help="Show what would be done"),
 ):
-    """Set up Tailscale funnels for detected web apps."""
+    """Set up Tailscale funnels/serves for detected web apps."""
     if not check_tailscale_running():
         console.print("[red]Tailscale is not running. Please start it first.[/red]")
         raise typer.Exit(1)
@@ -109,19 +116,27 @@ def up(
             console.print(f"[yellow]No apps found on port {port}.[/yellow]")
             return
 
+    # Validate mode
+    if mode not in (Mode.FUNNEL, Mode.SERVE):
+        console.print(f"[red]Invalid mode:[/red] {mode}. Use 'funnel' or 'serve'.")
+        raise typer.Exit(1)
+
     # Get unique ports
     ports = sorted(set(a.port for a in apps))
 
-    console.print(f"\n[bold]Setting up funnels for ports:[/bold] {', '.join(map(str, ports))}")
+    mode_label = "funnels" if mode == Mode.FUNNEL else "serves"
+    mode_desc = "(public)" if mode == Mode.FUNNEL else "(tailnet only)"
+    console.print(f"\n[bold]Setting up {mode_label} {mode_desc} for ports:[/bold] {', '.join(map(str, ports))}")
 
+    setup_fn = setup_funnel if mode == Mode.FUNNEL else setup_serve
     for p in ports:
         if dry_run:
-            console.print(f"  [dim]Would funnel port {p}[/dim]")
+            console.print(f"  [dim]Would {mode} port {p}[/dim]")
         else:
-            if setup_funnel(p):
-                console.print(f"  [green]✓[/green] Funnel set up for port {p}")
+            if setup_fn(p):
+                console.print(f"  [green]✓[/green] {mode.capitalize()} set up for port {p}")
             else:
-                console.print(f"  [red]✗[/red] Failed to set up funnel for port {p}")
+                console.print(f"  [red]✗[/red] Failed to set up {mode} for port {p}")
 
     if update_cors:
         console.print(f"\n[bold]Updating CORS configs for domain:[/bold] {domain}")

@@ -107,16 +107,28 @@ def remove_funnel(port: int) -> bool:
         return False
 
 
-def setup_serve(port: int, https_port: int = 443, path: str = "/") -> bool:
-    """Set up Tailscale serve (local proxy) for a port."""
-    if not validate_port(port) or not validate_port(https_port):
-        console.print(f"[red]Invalid port number[/red]")
+def setup_serve(port: int, https_port: int = None, background: bool = True) -> bool:
+    """Set up Tailscale serve (tailnet only) for a port.
+
+    Args:
+        port: Local port to expose
+        https_port: External HTTPS port (defaults to same as local port)
+        background: Run in background
+    """
+    if not validate_port(port):
+        console.print(f"[red]Invalid port number:[/red] {port}")
+        return False
+
+    https_port = https_port or port
+    if not validate_port(https_port):
+        console.print(f"[red]Invalid HTTPS port number:[/red] {https_port}")
         return False
 
     try:
-        # tailscale serve https:<https_port> / http://127.0.0.1:<port>
-        target = f"http://127.0.0.1:{port}"
-        cmd = ["tailscale", "serve", f"https:{https_port}", path, target]
+        cmd = ["tailscale", "serve", f"--https={https_port}"]
+        if background:
+            cmd.append("--bg")
+        cmd.append(str(port))
 
         result = subprocess.run(cmd, capture_output=True, text=True)
         if result.returncode != 0:
