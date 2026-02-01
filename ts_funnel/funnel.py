@@ -6,12 +6,9 @@ from typing import Optional
 
 from rich.console import Console
 
+from . import validate_port
+
 console = Console()
-
-
-def validate_port(port: int) -> bool:
-    """Validate port is in valid range."""
-    return isinstance(port, int) and 1 <= port <= 65535
 
 
 @dataclass

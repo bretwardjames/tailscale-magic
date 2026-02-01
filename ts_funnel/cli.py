@@ -8,7 +8,7 @@ from rich.console import Console
 from rich.table import Table
 
 from . import __version__
-from .allowlist import update_cors_config
+from .allowlist import update_cors_config, update_port_in_env
 from .funnel import (
     check_tailscale_running,
     get_current_funnels,
@@ -62,24 +62,39 @@ def scan(
         console.print("[yellow]No web apps found.[/yellow]")
         return
 
+    # Check for conflicts
+    conflicts = [a for a in apps if a.suggested_port is not None]
+
     table = Table(title="Detected Web Apps")
     table.add_column("Name", style="cyan")
     table.add_column("Type", style="green")
     table.add_column("Framework", style="yellow")
     table.add_column("Port", style="magenta")
+    table.add_column("Suggested", style="yellow")
     table.add_column("CORS Config", style="dim")
 
     for app in apps:
         cors_status = "Yes" if app.cors_config_path else "No"
+        port_str = str(app.port)
+        suggested_str = ""
+        if app.suggested_port:
+            port_str = f"[red]{app.port}[/red]"
+            suggested_str = f"[green]{app.suggested_port}[/green]"
+
         table.add_row(
             app.name,
             app.app_type,
             app.framework,
-            str(app.port),
+            port_str,
+            suggested_str,
             cors_status,
         )
 
     console.print(table)
+
+    if conflicts:
+        console.print(f"\n[yellow]⚠ {len(conflicts)} port conflict(s) detected.[/yellow]")
+        console.print("Run [bold]ts-funnel fix-conflicts[/bold] to update .env files with suggested ports.")
 
 
 @app.command()
@@ -191,6 +206,56 @@ def status():
     except FileNotFoundError:
         console.print("[red]Tailscale not found. Is it installed?[/red]")
         raise typer.Exit(1)
+
+
+@app.command("fix-conflicts")
+def fix_conflicts(
+    path: Optional[Path] = typer.Argument(None, help="Directory to scan (default: auto-detect)"),
+    max_depth: int = typer.Option(2, "--depth", "-d", help="Maximum depth to scan"),
+    dry_run: bool = typer.Option(False, "--dry-run", "-n", help="Show what would be done"),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Apply changes without confirmation"),
+):
+    """Fix port conflicts by updating .env files with suggested ports."""
+    scan_path = path or get_default_projects_dir()
+
+    if not scan_path.exists():
+        console.print(f"[red]Directory not found:[/red] {scan_path}")
+        raise typer.Exit(1)
+
+    apps = scan_directory(scan_path, max_depth)
+    conflicts = [a for a in apps if a.suggested_port is not None]
+
+    if not conflicts:
+        console.print("[green]No port conflicts detected.[/green]")
+        return
+
+    console.print(f"[bold]Found {len(conflicts)} port conflict(s):[/bold]\n")
+
+    for app in conflicts:
+        env_path = app.path / ".env"
+        console.print(f"  {app.name} ({app.framework})")
+        console.print(f"    Current port: [red]{app.port}[/red]")
+        console.print(f"    Suggested:    [green]{app.suggested_port}[/green]")
+        console.print(f"    .env file:    {env_path}")
+        console.print()
+
+    if dry_run:
+        console.print("[dim]Dry run - no changes made.[/dim]")
+        return
+
+    if not yes:
+        confirm = typer.confirm("Apply these changes?")
+        if not confirm:
+            console.print("[yellow]Cancelled.[/yellow]")
+            return
+
+    console.print("\n[bold]Applying changes:[/bold]")
+    for app in conflicts:
+        if app.suggested_port is None:
+            console.print(f"  [yellow]Skipping {app.name}:[/yellow] no valid port available")
+            continue
+        env_path = app.path / ".env"
+        update_port_in_env(env_path, app.suggested_port)
 
 
 @app.command()

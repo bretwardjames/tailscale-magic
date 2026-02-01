@@ -13,12 +13,10 @@ except ImportError:
 
 from dotenv import dotenv_values
 
+from . import validate_port
+
 MAX_FILE_SIZE = 1_000_000  # 1MB limit for file reads
-
-
-def validate_port(port: int) -> bool:
-    """Validate port is in valid range."""
-    return isinstance(port, int) and 1 <= port <= 65535
+MAX_DIRS_SCANNED = 10_000  # Limit to prevent runaway scanning
 
 
 def safe_read_text(path: Path, max_size: int = MAX_FILE_SIZE) -> Optional[str]:
@@ -42,6 +40,39 @@ class WebApp:
     cors_config_path: Optional[Path] = None
     env_file: Optional[Path] = None
     extra_info: dict = field(default_factory=dict)
+    suggested_port: Optional[int] = None  # Suggested port if conflict detected
+
+
+def resolve_port_conflicts(apps: list[WebApp]) -> list[WebApp]:
+    """Detect port conflicts and suggest alternative ports.
+
+    Returns the apps with suggested_port set for conflicting apps.
+    """
+    # Group apps by port
+    port_groups: dict[int, list[WebApp]] = {}
+    for app in apps:
+        port_groups.setdefault(app.port, []).append(app)
+
+    # Find all used ports
+    used_ports = set(app.port for app in apps)
+
+    # Resolve conflicts
+    for port, group in port_groups.items():
+        if len(group) > 1:
+            # Multiple apps on same port - suggest bumped ports
+            # Keep the first one, bump the rest
+            for i, app in enumerate(group[1:], start=1):
+                # Find next available port within valid range
+                suggested = port + i
+                while suggested in used_ports and suggested <= 65535:
+                    suggested += 1
+                # Only set suggested_port if it's valid
+                if validate_port(suggested):
+                    app.suggested_port = suggested
+                    used_ports.add(suggested)
+                # else: leave suggested_port as None - no valid port available
+
+    return apps
 
 
 # Framework detection patterns
@@ -214,9 +245,27 @@ def scan_directory(root_path: Path, max_depth: int = 2) -> list[WebApp]:
     """Scan a directory for web app projects."""
     apps = []
     root_path = root_path.resolve()
+    dirs_scanned = 0
+
+    def is_within_root(path: Path) -> bool:
+        """Check if path is within root (no symlink escapes)."""
+        try:
+            return path.resolve().is_relative_to(root_path)
+        except (ValueError, OSError):
+            return False
 
     def scan_project(project_path: Path, depth: int = 0):
+        nonlocal dirs_scanned
+
         if depth > max_depth:
+            return
+
+        if dirs_scanned >= MAX_DIRS_SCANNED:
+            return
+        dirs_scanned += 1
+
+        # Prevent symlink escapes outside root directory
+        if not is_within_root(project_path):
             return
 
         # Skip hidden directories and common non-project dirs
@@ -261,12 +310,21 @@ def scan_directory(root_path: Path, max_depth: int = 2) -> list[WebApp]:
 
         # Recurse into subdirectories (for monorepos)
         if project_path.is_dir():
-            for child in project_path.iterdir():
-                if child.is_dir():
-                    scan_project(child, depth + 1)
+            try:
+                for child in project_path.iterdir():
+                    if child.is_dir():
+                        scan_project(child, depth + 1)
+            except PermissionError:
+                pass  # Skip directories we can't read
 
-    for item in root_path.iterdir():
-        if item.is_dir():
-            scan_project(item)
+    try:
+        for item in root_path.iterdir():
+            if item.is_dir():
+                scan_project(item)
+    except PermissionError:
+        pass  # Skip if root is unreadable
+
+    # Detect and resolve port conflicts
+    apps = resolve_port_conflicts(apps)
 
     return apps
