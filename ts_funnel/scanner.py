@@ -115,7 +115,7 @@ def find_port_in_env(env_path: Path) -> Optional[int]:
     if not env_path.exists():
         return None
     env_vars = dotenv_values(env_path)
-    port_str = env_vars.get("PORT") or env_vars.get("VITE_PORT") or env_vars.get("DEV_PORT")
+    port_str = env_vars.get("PORT") or env_vars.get("WEB_PORT") or env_vars.get("NUXT_PORT") or env_vars.get("VITE_PORT") or env_vars.get("DEV_PORT")
     if port_str:
         try:
             return int(port_str)
@@ -139,24 +139,32 @@ def detect_frontend_framework(project_path: Path) -> Optional[tuple[str, int]]:
     scripts = pkg_json.get("scripts", {})
     dev_script = scripts.get("dev", "") + scripts.get("start", "")
 
+    # Check .env in project dir and parent dirs (monorepo root)
+    def _env_port() -> Optional[int]:
+        for d in [project_path, project_path.parent, project_path.parent.parent]:
+            p = find_port_in_env(d / ".env")
+            if p:
+                return p
+        return None
+
     for framework, config in FRONTEND_FRAMEWORKS.items():
         # Check for marker files
         for marker in config["markers"]:
             if (project_path / marker).exists():
-                port = find_port_in_package_json(pkg_json) or config["default_port"]
+                port = find_port_in_package_json(pkg_json) or _env_port() or config["default_port"]
                 return framework, port
 
         # Check script patterns
         if "script_pattern" in config and config["script_pattern"] in dev_script:
-            port = find_port_in_package_json(pkg_json) or config["default_port"]
+            port = find_port_in_package_json(pkg_json) or _env_port() or config["default_port"]
             return framework, port
 
     # Check for nuxt/next/vite in dev script
     if "nuxt" in dev_script:
-        port = find_port_in_package_json(pkg_json) or 3000
+        port = find_port_in_package_json(pkg_json) or _env_port() or 3000
         return "nuxt", port
     if "next" in dev_script:
-        port = find_port_in_package_json(pkg_json) or 3000
+        port = find_port_in_package_json(pkg_json) or _env_port() or 3000
         return "next", port
     if "vite" in dev_script:
         port = find_port_in_package_json(pkg_json) or 5173
