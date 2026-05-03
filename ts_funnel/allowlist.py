@@ -277,22 +277,40 @@ def update_port_in_env(env_path: Path, new_port: int, var_names: list[str] = Non
         return False
 
 
-def update_cors_config(config_path: Path, framework: str, domain: str, project_path: Optional[Path] = None) -> bool:
+def update_cors_config(
+    config_path: Path,
+    framework: str,
+    domain: str,
+    project_path: Optional[Path] = None,
+    port: Optional[int] = None,
+) -> bool:
     """Update CORS config based on framework type.
 
-    This is the public API - it validates paths before delegating to internal functions.
+    `domain` is the hostname only (e.g. beast.tail99686.ts.net).
+    `port` is the tailnet-side HTTPS port — when provided AND not 443
+    (the implicit HTTPS default), it gets stitched into the origin
+    string written to the config so CORS matches `https://host:port`.
+
+    This is the public API - it validates paths before delegating to
+    internal functions.
     """
     # Safety check: ensure config_path is within project_path if provided
     if project_path and not is_safe_path(project_path, config_path):
         console.print(f"[red]Skipping unsafe path:[/red] {config_path}")
         return False
 
+    # Construct the canonical origin written into config files. CORS
+    # matches scheme+host+port, so omitting the port (when shifted)
+    # would silently fail to allow the tailnet URL the user actually
+    # opens in the browser.
+    origin_host = domain if port is None or port == 443 else f"{domain}:{port}"
+
     if framework == "django":
-        return _update_django_cors(config_path, domain)
+        return _update_django_cors(config_path, origin_host)
     elif framework == "fastapi":
-        return _update_fastapi_cors(config_path, domain)
+        return _update_fastapi_cors(config_path, origin_host)
     elif framework in ("express", "nestjs"):
-        return _update_express_cors(config_path, domain)
+        return _update_express_cors(config_path, origin_host)
     else:
         console.print(f"[yellow]Unsupported framework for CORS update:[/yellow] {framework}")
         return False

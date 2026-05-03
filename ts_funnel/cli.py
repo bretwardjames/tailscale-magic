@@ -104,6 +104,14 @@ def up(
     mode: str = typer.Option(Mode.FUNNEL, "--mode", "-m", help="funnel (public) or serve (tailnet only)"),
     update_cors: bool = typer.Option(True, "--cors/--no-cors", help="Update CORS configs"),
     dry_run: bool = typer.Option(False, "--dry-run", "-n", help="Show what would be done"),
+    port_offset: int = typer.Option(
+        10000,
+        "--port-offset",
+        help="Offset added to local port for the tailnet HTTPS port when "
+        "the local port is wildcard-bound (e.g. dev server on 0.0.0.0). "
+        "Default 10000 → local 3030 becomes tailnet 13030. Pass 0 to "
+        "always use the same port number on both sides (may collide).",
+    ),
 ):
     """Set up Tailscale funnels/serves for detected web apps."""
     if not check_tailscale_running():
@@ -144,12 +152,24 @@ def up(
     console.print(f"\n[bold]Setting up {mode_label} {mode_desc} for ports:[/bold] {', '.join(map(str, ports))}")
 
     setup_fn = setup_funnel if mode == Mode.FUNNEL else setup_serve
+    # local port → external HTTPS port that tailscale ended up using
+    # (may differ from local when wildcard-bind conflicts triggered an
+    # offset). Tracked so the URL summary at the end uses the right
+    # port number per app.
+    external_for: dict[int, int] = {}
     for p in ports:
         if dry_run:
-            console.print(f"  [dim]Would {mode} port {p}[/dim]")
+            from .funnel import resolve_external_port
+            ext = resolve_external_port(p, port_offset)
+            shift_note = "" if ext == p else f" → tailnet {ext} (local {p} is wildcard-bound)"
+            console.print(f"  [dim]Would {mode} port {p}{shift_note}[/dim]")
+            external_for[p] = ext
         else:
-            if setup_fn(p):
-                console.print(f"  [green]✓[/green] {mode.capitalize()} set up for port {p}")
+            ext = setup_fn(p, port_offset=port_offset)
+            if ext:
+                shift_note = "" if ext == p else f" (tailnet :{ext}, local stays free on :{p})"
+                console.print(f"  [green]✓[/green] {mode.capitalize()} set up for port {p}{shift_note}")
+                external_for[p] = ext
             else:
                 console.print(f"  [red]✗[/red] Failed to set up {mode} for port {p}")
 
@@ -157,14 +177,28 @@ def up(
         console.print(f"\n[bold]Updating CORS configs for domain:[/bold] {domain}")
         for app in apps:
             if app.cors_config_path:
+                # Use the actual tailnet-side port for this app's CORS
+                # entry — falls back to the local port if we never went
+                # through setup_fn (dry_run path stored it too).
+                ext_port = external_for.get(app.port, app.port)
                 if dry_run:
-                    console.print(f"  [dim]Would update {app.cors_config_path}[/dim]")
+                    console.print(
+                        f"  [dim]Would update {app.cors_config_path} "
+                        f"(origin: https://{domain}:{ext_port})[/dim]"
+                    )
                 else:
-                    update_cors_config(app.cors_config_path, app.framework, domain, app.path)
+                    update_cors_config(
+                        app.cors_config_path,
+                        app.framework,
+                        domain,
+                        app.path,
+                        port=ext_port,
+                    )
 
     console.print(f"\n[bold green]Done![/bold green] Your apps are accessible at:")
     for p in ports:
-        console.print(f"  https://{domain}:{p}/")
+        ext = external_for.get(p, p)
+        console.print(f"  https://{domain}:{ext}/  [dim](→ local :{p})[/dim]")
 
 
 @app.command()
